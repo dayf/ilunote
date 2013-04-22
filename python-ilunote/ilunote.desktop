@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Ilunote
+Comment=Outline Markdown
+Exec=ilunote
+Icon=ilunote
+Terminal=false
+Type=Application
+Categories=Utility;
