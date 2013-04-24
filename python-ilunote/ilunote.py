@@ -19,9 +19,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals  # textbuffer still gives some str instead of unicode though?
+# from __future__ import unicode_literals
 
-__version__ = "2012-04-17"
+__version__ = "2012-04-24"
 
 from gi.repository import Gtk, Gdk # Gtk3, Gdk3
 import os
@@ -47,6 +47,12 @@ FONT_DESCRIPTION = "Monospace" # Monospace, Serif, Sans, '' ..
 SEPN = ' - ' # program name and breadcrumb separator
 SEPB = ' > ' # breadcrumb separator
 BULLET = '* '
+DATEFORMAT = "%Y-%m-%d"
+
+# http://python-gtk-3-tutorial.readthedocs.org/en/latest/textview.html
+# http://python-gtk-3-tutorial.readthedocs.org/en/latest/unicode.html#python-2
+
+# In general it is recommended to not use unicode objects in GTK+ applications at all and only use UTF-8 encoded str objects since GTK+ does not fully integrate with unicode objects.
 
 class Gui:
 
@@ -234,9 +240,12 @@ class Gui:
         self.paned.add2(self.scrolled_right)
         self.scrolled_right.add(self.textview)
         self.box_top.pack_start(self.box_bottom, expand=False, fill=True, padding=0)
+
+        self.label_status = Gtk.Label()
         self.box_bottom.pack_start(self.image_find, expand=False, fill=True, padding=0)
         self.box_bottom.pack_start(self.label_find_count, expand=False, fill=True, padding=0)
         self.box_bottom.pack_start(self.entry_find, expand=True, fill=True, padding=0)
+        self.box_bottom.pack_start(self.label_status, expand=False, fill=True, padding=0)        
 
         # event binding
         self.window.connect('delete_event', self.on_window_delete)
@@ -278,8 +287,6 @@ class Gui:
             the_iter = iter
             while True:
                 title = self.treestore[the_iter][0]
-                if type(title) == str:
-                    title = title.decode('utf-8')
                 title_path.append(title)
                 the_iter = self.treestore.iter_parent(the_iter)
                 if the_iter is None:
@@ -338,6 +345,7 @@ class Gui:
         copy_of_path.up() # get parent to avoid expansion of child
         self.treeview.expand_to_path(copy_of_path) # open treeview at last position
         self.treeview.set_cursor(path, self.column, start_editing=False)
+
 
     # textbuffer
     def on_textbuffer_changed(self, textbuffer):
@@ -590,9 +598,8 @@ class Gui:
 
 
     def on_insert_date_clicked(self, widget): # Insert date in textbuffer or editable
-        format = "%Y-%m-%d"
         widget = self.window.get_focus() # get the widget that has the focus
-        text = time.strftime(format)
+        text = time.strftime(DATEFORMAT)
         if isinstance(widget, Gtk.Editable): # if Editable
             widget.delete_selection() # delete selected text before inserting
             position = widget.get_position() # get text position
@@ -604,11 +611,14 @@ class Gui:
 
 
     def on_open_clicked(self, widget):
+        # like on_exit_clicked:
+        self.persistence.save_settings()
+        if self.persistence.save_needed(self.treestore):
+            if self.show_yesno_dialog("Close", "Save changes to %s?" % self.persistence.setting['filename'], default_button_yes=True):
+                self.persistence.save(self.treestore, backup=True)        
         homefolder = os.path.expanduser("~/")
         openfile = self.show_file_chooser("Select file ...", "file", homefolder)
         if openfile is not False:       
-        #if self.show_yesno_dialog("Open", "You will lose all changes after the last save.\nChoose file ..."):
-            #self.treestore, self.setting = self.persistence.load(self.treestore, self.setting, openfile)
             self.treestore = self.persistence.load(self.treestore, openfile)
             path = self.persistence.setting['last_path'] # todo: sense?
             self.select_last_path(path)
@@ -636,11 +646,16 @@ class Gui:
         # self.select_last_path(str(path))
         self.select_last_path(str(mypath))
 
-        self.window.set_title(PROGRAM_NAME + ' saved')
+        # self.window.set_title(PROGRAM_NAME + ' saved')
+        self.label_status.set_text(' saved. ')
         while Gtk.events_pending(): Gtk.main_iteration()
-        time.sleep(1)
-        self.window.set_title(PROGRAM_NAME)
+        time.sleep(1.5)
+        # self.window.set_title(PROGRAM_NAME)
+        self.label_status.set_text('')
         while Gtk.events_pending(): Gtk.main_iteration()
+
+        # set breadcrumb
+        # self.on_treeview_selection_changed( ...
 
     def _current_path(self):
         path = 0
@@ -746,6 +761,7 @@ class Persistence(object):
             # print 'comparing memory markd to', self.setting['filename']
             with codecs.open(self.setting['filename'], 'r', encoding='utf-8') as fh:
                 markd_disk = fh.read()
+                markd_disk = markd_disk.encode('utf-8')
                 # print type(markd), type(markd_disk)
                 if markd == markd_disk: # UnicodeWarning
                     return False
@@ -774,7 +790,8 @@ class Persistence(object):
                 self.show_message('Warning', 'Could not create backup(s).')
 
         with codecs.open(self.setting['filename'], "w", encoding="utf-8") as fh:
-            fh.write(markd)
+            # fh.write(markd)
+            fh.write(markd.decode('utf-8'))
 
     def save_settings(self):
         #conf = {'filename': self.filename}
@@ -832,6 +849,7 @@ class Persistence(object):
             with codecs.open(filename, 'r', encoding='utf-8') as fh:
                 # use different approach than by line?
                 for line_read in fh.readlines(): # has '\n' at the end
+                    line_read = line_read.encode('utf-8')
                     line = line_read.rstrip("\n")
                     inhead = False
                     section = None
@@ -922,7 +940,6 @@ class Persistence(object):
         return treestore
 
     def as_markdown(self):
-
         self.content = ''
         rootiter = self.treestore.get_iter_first()
         self.as_markdown_level(self.treestore, rootiter, 1)
@@ -934,10 +951,6 @@ class Persistence(object):
         while treeiter != None:
 
             title, desc = treestore[treeiter]
-            if type(title) == str:
-                title = title.decode('utf-8')
-            if type(desc) == str:
-                desc = desc.decode('utf-8')
 
             # todo: make headline style configurable
             # todo: displayed headings in desc?
@@ -945,7 +958,6 @@ class Persistence(object):
                 self.content += "\n" + level * '#' + ' ' + title + "\n"
                 # self.content += level * '#' + ' ' + title + "\n\n"
   
-            # desc encoding ok?
             if len(desc.rstrip("\n")) > 0:
                 self.content += desc.rstrip("\n") + "\n"
 
@@ -956,15 +968,17 @@ class Persistence(object):
 
     def as_html(self):
         text = self.as_markdown()
-        return markdown.markdown(text)
+        # Note: Markdown only accepts unicode input!
+        return markdown.markdown(text.decode('utf-8')).encode('utf-8')
 
     def store_html(self, treestore, filename):
-        print 'store html', filename
+        # print 'store html', filename
         '''export to html file'''
         template = '<?xml version="1.0" encoding="UTF-8"?><html><body /></html>'
         try:
             with codecs.open(TEMPLATE_HTML, 'r', 'utf-8') as fh:
                 template = fh.read()
+                template = template.encode('utf-8')
         except Exception, e:
             print 'error', e
 
@@ -972,7 +986,8 @@ class Persistence(object):
             self.treestore = treestore
             html = template.replace('<body />', '<body>%s</body>' % self.as_html())
             with codecs.open(filename, 'w', 'utf-8') as fh:
-                fh.write(html) #.encode('utf8') )
+                # fh.write(html)
+                fh.write(html.decode('utf-8'))
             #return True, filename
         except Exception, e:
             print 'error', e
@@ -993,8 +1008,7 @@ class Finder(list): # search in tree and texts
 
     def find(self, find_text, treestore): # search treestore
         self.mode = True
-        try: self.find_text = unicode(find_text.lower(), 'utf8')
-        except TypeError: self.find_text = find_text.lower()
+        self.find_text = find_text.lower()
         rootiter = treestore.get_iter_first()
         self.recurse_find(treestore, rootiter)
         self.max = len(self) # number of found items
@@ -1005,11 +1019,6 @@ class Finder(list): # search in tree and texts
     def recurse_find(self, treestore, iter): # recurse over treestore
         while iter != None:
             name, desc = treestore[iter]
-
-            if type(name) == str:
-                name = name.decode('utf-8')
-            if type(desc) == str:
-                desc = desc.decode('utf-8')
 
             name_lower = name.lower()
             desc_lower = desc.lower()
@@ -1049,7 +1058,6 @@ class Finder(list): # search in tree and texts
         self.max = 0
         self.index = 0
         self.mode = False
-
 
 
 class Undo:
